@@ -56,37 +56,46 @@ public class FillingBySpout {
 		return GenericItemFilling.getRequiredAmountForItem(world, stack, availableFluid);
 	}
 
-	public static ItemStack fillItem(Level level, int requiredAmount, ItemStack stack, FluidStack availableFluid) {
-		FluidStack toFill = availableFluid.copy();
-		toFill.setAmount(requiredAmount);
+        public static ItemStack fillItem(Level level, int requiredAmount, ItemStack stack, FluidStack availableFluid) {
+                List<ItemStack> results = fillItemAll(level, requiredAmount, stack, availableFluid);
+                return results.isEmpty() ? ItemStack.EMPTY : results.get(0);
+        }
 
-		SingleRecipeInput input = new SingleRecipeInput(stack);
+        public static List<ItemStack> fillItemAll(Level level, int requiredAmount, ItemStack stack, FluidStack availableFluid) {
+                FluidStack toFill = availableFluid.copy();
+                toFill.setAmount(requiredAmount);
 
-		RecipeHolder<FillingRecipe> fillingRecipe = SequencedAssemblyRecipe
-			.getRecipe(level, input, AllRecipeTypes.FILLING.getType(), FillingRecipe.class,
-				matchItemAndFluid(level, availableFluid, input))
-			.filter(fr -> fr.value().getRequiredFluid()
-					.test(toFill))
-				.orElseGet(() -> {
-					for (RecipeHolder<Recipe<SingleRecipeInput>> recipe : level.getRecipeManager()
-						.getRecipesFor(AllRecipeTypes.FILLING.getType(), input, level)) {
-						FillingRecipe fr = (FillingRecipe) recipe.value();
-						SizedFluidIngredient requiredFluid = fr.getRequiredFluid();
-						if (requiredFluid.test(toFill))
-							return new RecipeHolder<>(recipe.id(), fr);
-					}
-					return null;
-				});
+                SingleRecipeInput input = new SingleRecipeInput(stack);
 
-		if (fillingRecipe != null) {
-			List<ItemStack> results = fillingRecipe.value().rollResults(level.random);
-			availableFluid.shrink(requiredAmount);
-			stack.shrink(1);
-			return results.isEmpty() ? ItemStack.EMPTY : results.get(0);
-		}
+                RecipeHolder<FillingRecipe> fillingRecipe = SequencedAssemblyRecipe
+                        .getRecipe(level, input, AllRecipeTypes.FILLING.getType(), FillingRecipe.class,
+                                        matchItemAndFluid(level, availableFluid, input))
+                        .filter(fr -> fr.value()
+                                        .getRequiredFluid()
+                                        .test(toFill))
+                        .orElseGet(() -> {
+                                for (RecipeHolder<Recipe<SingleRecipeInput>> recipe : level.getRecipeManager()
+                                                .getRecipesFor(AllRecipeTypes.FILLING.getType(), input, level)) {
+                                        FillingRecipe fr = (FillingRecipe) recipe.value();
+                                        SizedFluidIngredient requiredFluid = fr.getRequiredFluid();
+                                        if (requiredFluid.test(toFill))
+                                                return new RecipeHolder<>(recipe.id(), fr);
+                                }
+                                return null;
+                        });
 
-		return GenericItemFilling.fillItem(level, requiredAmount, stack, availableFluid);
-	}
+                if (fillingRecipe != null) {
+                        List<ItemStack> results = fillingRecipe.value().rollResults(level.random);
+                        availableFluid.shrink(requiredAmount);
+                        stack.shrink(1);
+                        return results;
+                }
+
+                ItemStack filled = GenericItemFilling.fillItem(level, requiredAmount, stack, availableFluid);
+                if (filled.isEmpty())
+                        return List.of();
+                return List.of(filled);
+        }
 
 	private static Predicate<RecipeHolder<FillingRecipe>> matchItemAndFluid(Level world, FluidStack availableFluid, SingleRecipeInput input) {
 		return r -> r.value().matches(input, world) && r.value().getRequiredFluid()
