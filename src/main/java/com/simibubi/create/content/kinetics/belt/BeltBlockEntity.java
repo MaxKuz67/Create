@@ -119,16 +119,26 @@ public class BeltBlockEntity extends KineticBlockEntity {
 
 		initializeItemHandler();
 
-		// Move Items
-		if (!isController())
-			return;
+                // Move Items
+                if (!isController())
+                        return;
 
-		invalidateRenderBoundingBox();
+                BeltInventory inventory = getInventory();
+                if (inventory == null)
+                        return;
 
-		getInventory().tick();
+                boolean beltIdle = getSpeed() == 0 && inventory.isCompletelyIdle();
+                boolean hasPassengers = passengers != null && !passengers.isEmpty();
 
-		if (getSpeed() == 0)
-			return;
+                if (beltIdle && !hasPassengers)
+                        return;
+
+                invalidateRenderBoundingBox();
+
+                inventory.tick();
+
+                if (getSpeed() == 0)
+                        return;
 
 		// Move Entities
 		if (passengers == null)

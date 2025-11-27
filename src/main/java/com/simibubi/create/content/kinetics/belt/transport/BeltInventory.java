@@ -44,21 +44,24 @@ public class BeltInventory {
 	boolean beltMovementPositive;
 	final float SEGMENT_WINDOW = .75f;
 
-	TransportedItemStack lazyClientItem;
+        TransportedItemStack lazyClientItem;
 
-	public BeltInventory(BeltBlockEntity be) {
-		this.belt = be;
-		items = new LinkedList<>();
-		toInsert = new LinkedList<>();
-		toRemove = new LinkedList<>();
-	}
+        public BeltInventory(BeltBlockEntity be) {
+                this.belt = be;
+                items = new LinkedList<>();
+                toInsert = new LinkedList<>();
+                toRemove = new LinkedList<>();
+        }
 
-	public void tick() {
+        public void tick() {
 
-		// Residual item for "smooth" transitions
-		if (lazyClientItem != null) {
-			if (lazyClientItem.locked)
-				lazyClientItem = null;
+                if (isCompletelyIdle())
+                        return;
+
+                // Residual item for "smooth" transitions
+                if (lazyClientItem != null) {
+                        if (lazyClientItem.locked)
+                                lazyClientItem = null;
 			else
 				lazyClientItem.locked = true;
 		}
@@ -373,9 +376,13 @@ public class BeltInventory {
 		return false;
 	}
 
-	public void addItem(TransportedItemStack newStack) {
-		toInsert.add(newStack);
-	}
+        public void addItem(TransportedItemStack newStack) {
+                toInsert.add(newStack);
+        }
+
+        public boolean isCompletelyIdle() {
+                return items.isEmpty() && toInsert.isEmpty() && toRemove.isEmpty() && lazyClientItem == null;
+        }
 
 	private void insert(TransportedItemStack newStack) {
 		if (items.isEmpty())
