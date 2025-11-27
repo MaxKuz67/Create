@@ -290,9 +290,11 @@ public class FactoryPanelBehaviour extends FilteringBehaviour implements MenuPro
 		notifyRedstoneOutputs();
 	}
 
-	@Override
-	public void tick() {
-		super.tick();
+        @Override
+        public void tick() {
+                super.tick();
+                if (!active)
+                        return;
 		if (getWorld().isClientSide()) {
 			if (blockEntity.isVirtual())
 				tickStorageMonitor();
@@ -303,14 +305,18 @@ public class FactoryPanelBehaviour extends FilteringBehaviour implements MenuPro
 			return;
 		}
 
-		if (!promisePrimedForMarkDirty) {
-			restockerPromises.setOnChanged(blockEntity::setChanged);
-			promisePrimedForMarkDirty = true;
-		}
+                if (!promisePrimedForMarkDirty) {
+                        restockerPromises.setOnChanged(blockEntity::setChanged);
+                        promisePrimedForMarkDirty = true;
+                }
 
-		tickStorageMonitor();
-		tickRequests();
-	}
+                FactoryPanelBlockEntity panelBE = panelBE();
+                if (targetedBy.isEmpty() && targetedByLinks.isEmpty() && !panelBE.restocker)
+                        return;
+
+                tickStorageMonitor();
+                tickRequests();
+        }
 
 	@Override
 	public void lazyTick() {
