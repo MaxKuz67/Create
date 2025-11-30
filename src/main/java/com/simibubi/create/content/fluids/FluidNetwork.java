@@ -48,6 +48,7 @@ public class FluidNetwork {
 	FluidStack fluid;
 	List<Pair<BlockFace, FlowSource>> targets;
 	Map<BlockPos, WeakReference<FluidTransportBehaviour>> cache;
+	boolean propagationFinished;
 
 	public FluidNetwork(Level world, BlockFace location, Supplier<@Nullable ICapabilityProvider<IFluidHandler>> sourceSupplier) {
 		this.world = world;
@@ -68,94 +69,98 @@ public class FluidNetwork {
 			return;
 		}
 
-		for (int cycle = 0; cycle < CYCLES_PER_TICK; cycle++) {
-			boolean shouldContinue = false;
-			for (Iterator<BlockFace> iterator = queued.iterator(); iterator.hasNext();) {
-				BlockFace blockFace = iterator.next();
-				if (!isPresent(blockFace))
-					continue;
-				PipeConnection pipeConnection = get(blockFace);
-				if (pipeConnection != null) {
-					if (blockFace.equals(start))
-						transferSpeed = (int) Math.max(1, pipeConnection.pressure.get(true) / 2f);
-					frontier.add(Pair.of(blockFace, pipeConnection));
-				}
-				iterator.remove();
-			}
-
-//			drawDebugOutlines();
-
-			for (Iterator<Pair<BlockFace, PipeConnection>> iterator = frontier.iterator(); iterator.hasNext();) {
-				Pair<BlockFace, PipeConnection> pair = iterator.next();
-				BlockFace blockFace = pair.getFirst();
-				PipeConnection pipeConnection = pair.getSecond();
-
-				if (!pipeConnection.hasFlow())
-					continue;
-
-				Flow flow = pipeConnection.flow.get();
-				if (!fluid.isEmpty() && !FluidStack.isSameFluidSameComponents(flow.fluid, fluid)) {
+		if (!propagationFinished) {
+			for (int cycle = 0; cycle < CYCLES_PER_TICK; cycle++) {
+				boolean shouldContinue = false;
+				for (Iterator<BlockFace> iterator = queued.iterator(); iterator.hasNext();) {
+					BlockFace blockFace = iterator.next();
+					if (!isPresent(blockFace))
+						continue;
+					PipeConnection pipeConnection = get(blockFace);
+					if (pipeConnection != null) {
+						if (blockFace.equals(start))
+							transferSpeed = (int) Math.max(1, pipeConnection.pressure.get(true) / 2f);
+						frontier.add(Pair.of(blockFace, pipeConnection));
+					}
 					iterator.remove();
-					continue;
 				}
-				if (!flow.inbound) {
-					if (pipeConnection.comparePressure() >= 0)
+
+//		drawDebugOutlines();
+
+				for (Iterator<Pair<BlockFace, PipeConnection>> iterator = frontier.iterator(); iterator.hasNext();) {
+					Pair<BlockFace, PipeConnection> pair = iterator.next();
+					BlockFace blockFace = pair.getFirst();
+					PipeConnection pipeConnection = pair.getSecond();
+
+					if (!pipeConnection.hasFlow())
+						continue;
+
+					Flow flow = pipeConnection.flow.get();
+					if (!fluid.isEmpty() && !FluidStack.isSameFluidSameComponents(flow.fluid, fluid)) {
 						iterator.remove();
-					continue;
-				}
-				if (!flow.complete)
-					continue;
-
-				if (fluid.isEmpty())
-					fluid = flow.fluid;
-
-				boolean canRemove = true;
-				for (Direction side : Iterate.directions) {
-					if (side == blockFace.getFace())
 						continue;
-					BlockFace adjacentLocation = new BlockFace(blockFace.getPos(), side);
-					PipeConnection adjacent = get(adjacentLocation);
-					if (adjacent == null)
+					}
+					if (!flow.inbound) {
+						if (pipeConnection.comparePressure() >= 0)
+							iterator.remove();
 						continue;
-					if (!adjacent.hasFlow()) {
-						// Branch could potentially still appear
-						if (adjacent.hasPressure() && adjacent.pressure.getSecond() > 0)
+					}
+					if (!flow.complete)
+						continue;
+
+					if (fluid.isEmpty())
+						fluid = flow.fluid;
+
+					boolean canRemove = true;
+					for (Direction side : Iterate.directions) {
+						if (side == blockFace.getFace())
+							continue;
+						BlockFace adjacentLocation = new BlockFace(blockFace.getPos(), side);
+						PipeConnection adjacent = get(adjacentLocation);
+						if (adjacent == null)
+							continue;
+						if (!adjacent.hasFlow()) {
+							// Branch could potentially still appear
+							if (adjacent.hasPressure() && adjacent.pressure.getSecond() > 0)
+								canRemove = false;
+							continue;
+						}
+						Flow outFlow = adjacent.flow.get();
+						if (outFlow.inbound) {
+							if (adjacent.comparePressure() > 0)
+								canRemove = false;
+							continue;
+						}
+						if (!outFlow.complete) {
 							canRemove = false;
-						continue;
-					}
-					Flow outFlow = adjacent.flow.get();
-					if (outFlow.inbound) {
-						if (adjacent.comparePressure() > 0)
+							continue;
+						}
+
+						// Give pipe end a chance to init connections
+						if (!adjacent.source.isPresent() && !adjacent.determineSource(world, blockFace.getPos())) {
 							canRemove = false;
-						continue;
-					}
-					if (!outFlow.complete) {
-						canRemove = false;
-						continue;
-					}
+							continue;
+						}
 
-					// Give pipe end a chance to init connections
-					if (!adjacent.source.isPresent() && !adjacent.determineSource(world, blockFace.getPos())) {
-						canRemove = false;
-						continue;
-					}
+						if (adjacent.source.isPresent() && adjacent.source.get()
+							.isEndpoint()) {
+							targets.add(Pair.of(adjacentLocation, adjacent.source.get()));
+							continue;
+						}
 
-					if (adjacent.source.isPresent() && adjacent.source.get()
-						.isEndpoint()) {
-						targets.add(Pair.of(adjacentLocation, adjacent.source.get()));
-						continue;
+						if (visited.add(adjacentLocation.getConnectedPos())) {
+							queued.add(adjacentLocation.getOpposite());
+							shouldContinue = true;
+						}
 					}
-
-					if (visited.add(adjacentLocation.getConnectedPos())) {
-						queued.add(adjacentLocation.getOpposite());
-						shouldContinue = true;
-					}
+					if (canRemove)
+						iterator.remove();
 				}
-				if (canRemove)
-					iterator.remove();
+				if (!shouldContinue)
+					break;
 			}
-			if (!shouldContinue)
-				break;
+
+			propagationFinished = queued.isEmpty() && frontier.isEmpty();
 		}
 
 //		drawDebugOutlines();
@@ -289,15 +294,16 @@ public class FluidNetwork {
 		((InterfaceFluidHandler) source).keepAlive();
 	}
 
-	public void reset() {
-		frontier.clear();
-		visited.clear();
-		targets.clear();
-		queued.clear();
-		fluid = FluidStack.EMPTY;
-		queued.add(start);
-		pauseBeforePropagation = 2;
-	}
+public void reset() {
+frontier.clear();
+visited.clear();
+targets.clear();
+queued.clear();
+fluid = FluidStack.EMPTY;
+queued.add(start);
+pauseBeforePropagation = 2;
+propagationFinished = false;
+}
 
 	@Nullable
 	private PipeConnection get(BlockFace location) {
