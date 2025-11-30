@@ -65,12 +65,20 @@ public abstract class FluidTransportBehaviour extends BlockEntityBehaviour {
 		BlockPos pos = getPos();
 		boolean onServer = !world.isClientSide || blockEntity.isVirtual();
 
-		if (interfaces == null)
-			return;
-		Collection<PipeConnection> connections = interfaces.values();
+                if (interfaces == null)
+                        return;
+                Collection<PipeConnection> connections = interfaces.values();
 
-		// Do not provide a lone pipe connection with its own flow input
-		PipeConnection singleSource = null;
+                boolean allConnectionsIdle = true;
+                for (PipeConnection connection : connections) {
+                        if (connection.hasFlow() || connection.hasPressure()) {
+                                allConnectionsIdle = false;
+                                break;
+                        }
+                }
+
+                // Do not provide a lone pipe connection with its own flow input
+                PipeConnection singleSource = null;
 
 //		if (onClient) {
 //			connections.forEach(connection -> {
@@ -94,14 +102,17 @@ public abstract class FluidTransportBehaviour extends BlockEntityBehaviour {
 				blockEntity.notifyUpdate();
 		}
 
-		if (phase == UpdatePhase.FLIP_FLOWS) {
-			phase = UpdatePhase.IDLE;
-			return;
-		}
+                if (phase == UpdatePhase.FLIP_FLOWS) {
+                        phase = UpdatePhase.IDLE;
+                        return;
+                }
 
-		if (onServer) {
-			FluidStack availableFlow = FluidStack.EMPTY;
-			FluidStack collidingFlow = FluidStack.EMPTY;
+                if (onServer && allConnectionsIdle)
+                        return;
+
+                if (onServer) {
+                        FluidStack availableFlow = FluidStack.EMPTY;
+                        FluidStack collidingFlow = FluidStack.EMPTY;
 
 			for (PipeConnection connection : connections) {
 				FluidStack fluidInFlow = connection.getProvidedFluid();
